@@ -1,6 +1,7 @@
 /**
- * @file main.cpp
- * @author Ab-Tx (you@domain.com)
+ * @file main.ino
+ * @authors Ab-Tx
+			
  * @brief This software allows the logging of various sensors
  * into a SDCard text file.
  * @version 0.1
