@@ -1,7 +1,7 @@
 /**
  * @file main.ino
- * @authors Ab-Tx
-			
+ * @author Ab-Tx
+ *         MiguelRodriguesESTG
  * @brief This software allows the logging of various sensors
  * into a SDCard text file.
  * @version 0.1
@@ -47,7 +47,7 @@
 #include <SD.h>
 #include <sd_defines.h>
 #include <sd_diskio.h>
-/* ################################################# */
+ /* ################################################# */
 
 #ifndef PINS_
 #define PIN_ADC1_0 36
@@ -84,7 +84,7 @@
 
 // Do not enable both, different serial baudrate is used for each
 #define EXTERNAL_BLUETOOTH_MODULE
-// #define DEBUG_SERIAL_
+//#define DEBUG_SERIAL_
 #ifdef EXTERNAL_BLUETOOTH_MODULE
 #ifdef DEBUG_SERIAL_
 #error "Cannot define both, HC-11 is to be disconnected if you're debugging with serial."
@@ -360,7 +360,7 @@ void setup()
     Serial.println("[ERROR] The queue xQueueIIM could not be created.");
   #endif
   }
-  xQueueBlue = xQueueCreate(3, sizeof(std::string*));
+  xQueueBlue = xQueueCreate(3, sizeof(char[300]));
   if (xQueueBlue != NULL)
   {
     // ...
@@ -544,6 +544,7 @@ void vMainTask(void* pvParameters)
   for (;;)
   {
     TickType_t xLastWakeTime = xTaskGetTickCount();
+    //std::string* pStr2;
     if (Serial.available()) { // read the character and do what you need
       String msg = Serial.readString();
       serStr.clear();
@@ -630,10 +631,13 @@ void vMainTask(void* pvParameters)
 
       if (answer.empty())
         answer.append("Unkown, type 'help' for commands.\n");
-      std::string* pStr2 = new std::string(answer.c_str());
-      xQueueSendToBack(xQueueBlue, &pStr2, 0);
-    }
+      //pStr2 = new std::string(answer.c_str());
+      char a[300];
+      strcpy(a,answer.c_str());
+      
+      xQueueSendToBack(xQueueBlue, &a, 0);
 
+    }
     bool infoCollected = false;
     xStatus = xQueueReceive(xQueueADC, &ADCReceivedValue, 0);
     //......................|||||||||...\\\\\\\\\\\\\\\\-> copy values to local variable 
@@ -790,6 +794,7 @@ void vMainTask(void* pvParameters)
 
     vTaskDelayUntil(&xLastWakeTime, xDelay250ms); // "Smart" Delay (250ms)
     sdcString.clear();
+    //delete pStr2;
   }
 }
 
@@ -802,10 +807,12 @@ static void vSerialSendTask(void* pvParameters)
   for (;; )
   {
     /* Wait for a message to arrive. */
-    std::string* pStr = NULL;
-    xQueueReceive(xQueueBlue, &pStr, portMAX_DELAY);
+    char data[300];
+    xQueueReceive(xQueueBlue, &data, portMAX_DELAY);
+    std::string pStr;
+    pStr.append(data);;
 
-    Serial.println(pStr->c_str());
+    Serial.println(pStr.c_str());
     Serial.flush();
   }
 }
@@ -1048,19 +1055,22 @@ void vSDwriteTask(void* pvParameters) {
   for (;;) {
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
-    if (sdcardInserted == true) {
+    if (digitalRead(INTERRUPT_PIN) == LOW) { // SDCard inserted
       std::string* pStr = NULL;
       xStatus = xQueueReceive(xQueueSD, &pStr, 0);
+      std::string cpy;
+      cpy.clear();
       if (xStatus == pdPASS) {
+        cpy = *pStr;
       #ifdef DEBUG_SERIAL_SDWRITE
         Serial.print(" ,");
-        Serial.print(pStr->c_str());
+        Serial.print(cpy->c_str());
       #endif
         xSemaphoreTake(xMutexHSPI, portMAX_DELAY);
         if (rtc.getYear() < 2000) { // true if rtc not adjusted
           // save info on a file named "temp", if file exits, rename existing file
           std::string content;
-          content.append(pStr->c_str());
+          content.append(cpy.c_str());
           content.append("\n");
           writeFile(SD, fileName.c_str(), content.c_str());
         }
@@ -1145,7 +1155,7 @@ void vSDwriteTask(void* pvParameters) {
           content.append(std::to_string(rtc.getSecond()));
           content.append("s");
           content.append(" # ");
-          content.append(pStr->c_str());
+          content.append(cpy.c_str());
           content.append("\r\n");
           if (writingToTempTxt == true) { // if we just now got the updated time/date
             renameFile(SD, "/temp.txt", fileName.c_str());  // We'll rename the temp.txt to keep its contents
@@ -1163,9 +1173,10 @@ void vSDwriteTask(void* pvParameters) {
         Serial.print("SD xStatus != pdPASS");
       }
     #endif
+      delete pStr;
     }
     else {
-      while (sdcardInserted == false)
+      while (digitalRead(INTERRUPT_PIN) == HIGH)  // while SDCard not inserted
       {
         vTaskDelayUntil(&xLastWakeTime, xDelay250ms); // "Smart" Delay (250ms)
         TickType_t xLastWakeTime = xTaskGetTickCount();
