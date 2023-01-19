@@ -1,7 +1,7 @@
 # Libraries
 These libraries were the ones tested with the project.
 
-For the originals refer tot he following links:
+For the originals, refer to the following links:
 - [Adafruit Si7021](https://github.com/adafruit/Adafruit_Si7021 "Adafruit Si7021");
 - [Adafruit BusIO;](https://github.com/adafruit/Adafruit_BusIO "Adafruit BusIO;")
 - [ESP32Time](https://github.com/fbiego/ESP32Time "ESP32Time");
