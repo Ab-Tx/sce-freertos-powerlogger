@@ -1,10 +1,9 @@
 /**
- * @file main.ino
+ * @file main.cpp
  * @author Ab-Tx
  *         MiguelRodriguesESTG
- * @brief This software allows the logging of various sensors
- * into a SDCard text file.
- * @version 0.1
+ * @brief This software allows logging various sensors into a text file on an SDCard.
+ * @version 0.2
  * @date 2023-01-18
  *
  * @copyright Copyright (c) 2023
