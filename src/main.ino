@@ -18,7 +18,7 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-//#include <Arduino.h>
+// #include <Arduino.h>
 #include <stdio.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -46,7 +46,7 @@
 #include <SD.h>
 #include <sd_defines.h>
 #include <sd_diskio.h>
- /* ################################################# */
+/* ################################################# */
 
 #ifndef PINS_
 #define PIN_ADC1_0 36
@@ -58,12 +58,12 @@
 #define PIN_ATM_IRQ1 25
 #define PIN_ATM_IRQ0 26
 #define PIN_ATM_DMA 27
-#define PIN_HSPI_CLK 14 //SD
-#define PIN_HSPI_MISO 12   //SD
-#define PIN_HSPI_ID 13  //SD
+#define PIN_HSPI_CLK 14  // SD
+#define PIN_HSPI_MISO 12 // SD
+#define PIN_HSPI_ID 13   // SD
 #define PIN_ATM_WARNOUT 9
-//#define GPIO10 10 // Connected to internal SPI
-//#define GPIO11 11 // Connected to internal SPI
+// #define GPIO10 10 // Connected to internal SPI
+// #define GPIO11 11 // Connected to internal SPI
 #define PIN_VSPI_MOSI 23
 #define PIN_I2C_SCL 22
 #define PIN_I2C_SDA 21
@@ -72,18 +72,18 @@
 #define PIN_VSPI_CS0 5
 #define PIN_INT2 17
 #define PIN_INT1 16
-#define PIN_GPIO4 4 // Available
-#define PIN_GPIO0 0 // Available
-#define PIN_LED 2 // Available
-#define PIN_HSPI_CS 15  //SD
-//#define GPIO8 8 // Connected to internal SPI
-//#define GPIO7 7 // Connected to internal SPI
-//#define GPIO6 6 // Connected to internal SPI
+#define PIN_GPIO4 4    // Available
+#define PIN_GPIO0 0    // Available
+#define PIN_LED 2      // Available
+#define PIN_HSPI_CS 15 // SD
+// #define GPIO8 8 // Connected to internal SPI
+// #define GPIO7 7 // Connected to internal SPI
+// #define GPIO6 6 // Connected to internal SPI
 #endif
 
 // Do not enable both, different serial baudrate is used for each
 #define EXTERNAL_BLUETOOTH_MODULE
-//#define DEBUG_SERIAL_
+// #define DEBUG_SERIAL_
 #ifdef EXTERNAL_BLUETOOTH_MODULE
 #ifdef DEBUG_SERIAL_
 #error "Cannot define both, HC-11 is to be disconnected if you're debugging with serial."
@@ -106,16 +106,16 @@ SemaphoreHandle_t xMutexHSPI;
 SemaphoreHandle_t xMutexI2C;
 
 /* The task functions. */
-void vMainTask(void* pvParameters); // 250ms
-void vWiFiTask(void* pvParameters); // async, runs once
-void vADCTask(void* pvParameters); //250ms
-void vAtmTask(void* pvParameters); //250ms
-void vSiTask(void* pvParameters); //250ms
-void vIImTask(void* pvParameters); //250ms
-void vSDwriteTask(void* pvParameters); //250ms
-static void vSerialSendTask(void* pvParameters); // async, for print only  
-static void vSDHandlerTask(void* pvParameters); // async
-bool my_vApplicationIdleHook(void); // idleTask
+void vMainTask(void *pvParameters);              // 250ms
+void vWiFiTask(void *pvParameters);              // async, runs once
+void vADCTask(void *pvParameters);               // 250ms
+void vAtmTask(void *pvParameters);               // 250ms
+void vSiTask(void *pvParameters);                // 250ms
+void vIImTask(void *pvParameters);               // 250ms
+void vSDwriteTask(void *pvParameters);           // 250ms
+static void vSerialSendTask(void *pvParameters); // async, for print only
+static void vSDHandlerTask(void *pvParameters);  // async
+bool my_vApplicationIdleHook(void);              // idleTask
 
 /* The service routine for the interrupt.  This is the interrupt that the task
 will be synchronized with. */
@@ -123,13 +123,21 @@ static void IRAM_ATTR vSDInterruptHandler(void);
 #define INTERRUPT_PIN 4 // GPIO 2 SDCard
 
 /*  Structs */
+
+/**
+ * @brief structure for passing information of si7021, used with queue
+ *
+ */
 typedef struct
 {
-  // edit
   float humidity;
   float temperature;
 } data_si_t;
 
+/**
+ * @brief structure for passing information of ATM90E36, used with queue
+ *
+ */
 typedef struct
 {
   // ATM90E36
@@ -170,20 +178,22 @@ typedef struct
   double temperature;
   double importEnergy;
   double exportEnergy;
-  unsigned short sysStatus0;  // for checking erros
+  unsigned short sysStatus0; // for checking erros
   unsigned short sysStatus1;
   unsigned short meterStatus0;
   unsigned short meterStatus1;
 } data_atm_t;
 
+/**
+ * @brief Strucutre for passing information of IIM-42352, used with queue
+ *
+ */
 typedef struct
 {
-  // edit
   float accelX;
   float accelY;
   float accelZ;
 } data_iim_t;
-
 
 volatile bool sdcardInserted = false;
 
@@ -195,56 +205,54 @@ QueueHandle_t xQueueSI;   // SI7021
 QueueHandle_t xQueueIIM;  // IIM-42352
 QueueHandle_t xQueueBlue; // Bluetooth, HC-11, EUSART
 QueueHandle_t xQueueSD;   // Cartao SD
-// Informar a Idle task a partir da
-// handler task da presença do cartão
+// Informar a Idle task a partir da handler task da presença do cartão (com recurso a var global)
 
- /*
-  * SD Card | ESP32 | HSPI
-  *    D2       -
-  *    D3       SS     GPIO 15
-  *    CMD      MOSI   GPIO 13
-  *    VSS      GND
-  *    VDD      3.3V
-  *    CLK      SCK    GPIO 14
-  *    VSS      GND
-  *    D0       MISO   GPIO 12
-  *    D1       -
-  */
+/* -> ESP32's SDMMC module didn't work properly, using HSPI..
+ * SD Card | ESP32 | HSPI
+ *    D2       -
+ *    D3       SS     GPIO 15
+ *    CMD      MOSI   GPIO 13
+ *    VSS      GND
+ *    VDD      3.3V
+ *    CLK      SCK    GPIO 14
+ *    VSS      GND
+ *    D0       MISO   GPIO 12
+ *    D1       -
+ */
 
-  /* Declare a variable of type SemaphoreHandle_t.  This is used to reference the
-  semaphore that is used to synchronize a task with an interrupt. */
+/* Declare a variable of type SemaphoreHandle_t.  This is used to reference the
+semaphore that is used to synchronize a task with an interrupt. */
 SemaphoreHandle_t xBinarySemaphore;
 #define LED_CHANNEL 1
 
 // Task priorities:
-#define PRIO_TASK_MAIN  6    
-#define PRIO_TASK_HANDLER 4 
-#define PRIO_TASK_WIFI  2    
-#define PRIO_TASK_ADC   3
-#define PRIO_TASK_ATM   3
-#define PRIO_TASK_SI    3
-#define PRIO_TASK_IIM   3
-#define PRIO_TASK_SDWRITE   3
+#define PRIO_TASK_MAIN 6
+#define PRIO_TASK_HANDLER 4
+#define PRIO_TASK_WIFI 2
+#define PRIO_TASK_ADC 3
+#define PRIO_TASK_ATM 3
+#define PRIO_TASK_SI 3
+#define PRIO_TASK_IIM 3
+#define PRIO_TASK_SDWRITE 3
 #define PRIO_TASK_SERIALPRINT 2
 
 void setup()
 {
-  pinMode(PIN_ATM_PM, INPUT); // :/
+  pinMode(PIN_ATM_PM, INPUT); // Issue with PCB's PM pins.
   pinMode(PIN_ATM_CF1, INPUT);
   pinMode(PIN_ATM_CF2, INPUT);
   pinMode(PIN_ATM_CF3, INPUT);
   pinMode(PIN_ATM_CF4, INPUT);
   pinMode(PIN_ATM_IRQ0, INPUT);
   pinMode(PIN_ATM_IRQ1, INPUT);
-  pinMode(PIN_ATM_DMA, OUTPUT); // set to 0 so ATM90E36 operates as slave
+  pinMode(PIN_ATM_DMA, OUTPUT);   // set to 0 so ATM90E36 operates as slave
   digitalWrite(PIN_ATM_DMA, LOW); // set to 0 so ATM90E36 operates as slave
   pinMode(PIN_ATM_WARNOUT, INPUT);
   pinMode(PIN_VSPI_CS0, OUTPUT);
   digitalWrite(PIN_VSPI_CS0, HIGH); // SPI CS
-  pinMode(21, INPUT_PULLUP); // I2C SDA pin
+  pinMode(21, INPUT_PULLUP);        // I2C SDA pin
   pinMode(0, OUTPUT);
   digitalWrite(0, HIGH); // set ATM to normal mode
-
 
   /* Before a semaphore is used it must be explicitly created.  In this example
     a binary semaphore is created. */
@@ -257,7 +265,8 @@ void setup()
 
   pinMode(INTERRUPT_PIN, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), &vSDInterruptHandler, CHANGE);
-  if (digitalRead(INTERRUPT_PIN) == LOW) {
+  if (digitalRead(INTERRUPT_PIN) == LOW)
+  {
     sdcardInserted = true;
   }
 
@@ -268,38 +277,38 @@ void setup()
   // Init USART and set Baud-rate to 115200
   Serial.begin(115200);
 #else
-  // Init USART and set Baud-rate to 9600 -> only supported speed by Bluetooth module
+  // Init USART and set Baud-rate to 9600 -> only baudrate supported speed by Bluetooth (HM-11) module
   Serial.begin(9600);
 #endif
   Wire.begin();
   SPI.begin();
 
-  xTaskCreatePinnedToCore(vWiFiTask,                                 /* Pointer to the function that implements the task. */
-    "WiFi Task",                               /* Text name for the task.  This is to facilitate debugging only. */
-    3024,                                      /* Stack depth - most small microcontrollers will use much less stack than this. */
-    NULL,                                      /* We are not using the task parameter. */
-    PRIO_TASK_WIFI, /* Priority */ /* Range from 0 to 32, 32 being the highest priority */
-    NULL,                                      /* We are not using the task handle. */
-    0);                                        /* Core where the task should run */
+  xTaskCreatePinnedToCore(vWiFiTask,                     /* Pointer to the function that implements the task. */
+                          "WiFi Task",                   /* Text name for the task.  This is to facilitate debugging only. */
+                          3024,                          /* Stack depth - most small microcontrollers will use much less stack than this. */
+                          NULL,                          /* We are not using the task parameter. */
+                          PRIO_TASK_WIFI, /* Priority */ /* Range from 0 to 32, 32 being the highest priority */
+                          NULL,                          /* We are not using the task handle. */
+                          0);                            /* Core where the task should run */
 
   /* *************************************************** */
   /* The queue is created to hold a maximum of 5 values. */
   xQueueADC = xQueueCreate(1, sizeof(float));
   if (xQueueADC != NULL)
   {
-    xTaskCreatePinnedToCore(vADCTask,                                 /* Pointer to the function that implements the task. */
-      "ADC Task",                               /* Text name for the task.  This is to facilitate debugging only. */
-      1024,                                      /* Stack depth - most small microcontrollers will use much less stack than this. */
-      NULL,                                      /* We are not using the task parameter. */
-      PRIO_TASK_ADC, /* Priority. */ /* Range from 0 to 32, 32 being the highest priority */
-      NULL,                                      /* We are not using the task handle. */
-      1);
+    xTaskCreatePinnedToCore(vADCTask,                      /* Pointer to the function that implements the task. */
+                            "ADC Task",                    /* Text name for the task.  This is to facilitate debugging only. */
+                            1024,                          /* Stack depth - most small microcontrollers will use much less stack than this. */
+                            NULL,                          /* We are not using the task parameter. */
+                            PRIO_TASK_ADC, /* Priority. */ /* Range from 0 to 32, 32 being the highest priority */
+                            NULL,                          /* We are not using the task handle. */
+                            1);
   }
   else
   {
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println("[ERROR] The queue xQueueADC could not be created.");
-  #endif
+#endif
   }
 
   xQueueATM = xQueueCreate(3, sizeof(data_atm_t));
@@ -307,94 +316,94 @@ void setup()
   {
     // ATM Task here
     eic.begin(PIN_VSPI_CS0, 50, 1, 1, 1, 1, 1, 1);
-    xTaskCreatePinnedToCore(vAtmTask,                                 /* Pointer to the function that implements the task. */
-      "Atm Task",                               /* Text name for the task.  This is to facilitate debugging only. */
-      8096,                                      /* Stack depth - most small microcontrollers will use much less stack than this. */
-      NULL,                                      /* We are not using the task parameter. */
-      PRIO_TASK_ATM, /* Priority */ /* Range from 0 to 32, 32 being the highest priority */
-      NULL,                                      /* We are not using the task handle. */
-      1);                                        /* Core where the task should run */
+    xTaskCreatePinnedToCore(vAtmTask,                     /* Pointer to the function that implements the task. */
+                            "Atm Task",                   /* Text name for the task.  This is to facilitate debugging only. */
+                            8096,                         /* Stack depth - most small microcontrollers will use much less stack than this. */
+                            NULL,                         /* We are not using the task parameter. */
+                            PRIO_TASK_ATM, /* Priority */ /* Range from 0 to 32, 32 being the highest priority */
+                            NULL,                         /* We are not using the task handle. */
+                            1);                           /* Core where the task should run */
   }
   else
   {
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println("[ERROR] The queue xQueueATM could not be created.");
-  #endif
+#endif
   }
 
   xQueueSI = xQueueCreate(3, sizeof(data_si_t));
   if (xQueueSI != NULL)
   {
     // Si Task here
-    xTaskCreatePinnedToCore(vSiTask, // Pointer to the function that implements the task. 
-      "Si Task",  // Text name for the task.  This is to facilitate debugging only. 
-      8000,// Stack depth - most small microcontrollers will use much less stack than this. 
-      NULL, // We are not using the task parameter. 
-      PRIO_TASK_SI,    // Priority 
-      NULL, // We are not using the task handle. 
-      1);   // Core where the task should run 
+    xTaskCreatePinnedToCore(vSiTask,      // Pointer to the function that implements the task.
+                            "Si Task",    // Text name for the task.  This is to facilitate debugging only.
+                            8000,         // Stack depth - most small microcontrollers will use much less stack than this.
+                            NULL,         // We are not using the task parameter.
+                            PRIO_TASK_SI, // Priority
+                            NULL,         // We are not using the task handle.
+                            1);           // Core where the task should run
   }
   else
   {
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println("[ERROR] The queue xQueueSI could not be created.");
-  #endif
+#endif
   }
 
   xQueueIIM = xQueueCreate(3, sizeof(data_iim_t));
   if (xQueueIIM != NULL)
   {
     // IIM Task here
-    xTaskCreatePinnedToCore(vIImTask, // Pointer to the function that implements the task. 
-      "IIM Task",  // Text name for the task.  This is to facilitate debugging only. 
-      8000,// Stack depth - most small microcontrollers will use much less stack than this. 
-      NULL, // We are not using the task parameter. 
-      PRIO_TASK_IIM,    // Priority 
-      NULL, // We are not using the task handle. 
-      1);   // Core where the task should run 
+    xTaskCreatePinnedToCore(vIImTask,      // Pointer to the function that implements the task.
+                            "IIM Task",    // Text name for the task.  This is to facilitate debugging only.
+                            8000,          // Stack depth - most small microcontrollers will use much less stack than this.
+                            NULL,          // We are not using the task parameter.
+                            PRIO_TASK_IIM, // Priority
+                            NULL,          // We are not using the task handle.
+                            1);            // Core where the task should run
   }
   else
   {
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println("[ERROR] The queue xQueueIIM could not be created.");
-  #endif
+#endif
   }
   xQueueBlue = xQueueCreate(3, sizeof(char[300]));
   if (xQueueBlue != NULL)
   {
     // ...
     // received info handled in main task
-    xTaskCreatePinnedToCore(vSerialSendTask, // Pointer to the function that implements the task. 
-      "Serial print Task",  // Text name for the task.  This is to facilitate debugging only. 
-      4000,// Stack depth - most small microcontrollers will use much less stack than this. 
-      NULL, // We are not using the task parameter. 
-      PRIO_TASK_SERIALPRINT,    // Priority 
-      NULL, // We are not using the task handle. 
-      1);   // Core where the task should run 
+    xTaskCreatePinnedToCore(vSerialSendTask,       // Pointer to the function that implements the task.
+                            "Serial print Task",   // Text name for the task.  This is to facilitate debugging only.
+                            4000,                  // Stack depth - most small microcontrollers will use much less stack than this.
+                            NULL,                  // We are not using the task parameter.
+                            PRIO_TASK_SERIALPRINT, // Priority
+                            NULL,                  // We are not using the task handle.
+                            1);                    // Core where the task should run
   }
   else
   {
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println("[ERROR] The queue xQueueBlue could not be created.");
-  #endif
+#endif
   }
-  xQueueSD = xQueueCreate(3, sizeof(std::string*));
+  xQueueSD = xQueueCreate(3, sizeof(std::string *));
   if (xQueueSD != NULL)
   {
     // SD Task here
-    xTaskCreatePinnedToCore(vSDwriteTask, // Pointer to the function that implements the task. 
-      "SDWrite Task",  // Text name for the task.  This is to facilitate debugging only. 
-      4000,// Stack depth - most small microcontrollers will use much less stack than this. 
-      NULL, // We are not using the task parameter. 
-      PRIO_TASK_SDWRITE,    // Priority 
-      NULL, // We are not using the task handle. 
-      1);   // Core where the task should run 
+    xTaskCreatePinnedToCore(vSDwriteTask,      // Pointer to the function that implements the task.
+                            "SDWrite Task",    // Text name for the task.  This is to facilitate debugging only.
+                            4000,              // Stack depth - most small microcontrollers will use much less stack than this.
+                            NULL,              // We are not using the task parameter.
+                            PRIO_TASK_SDWRITE, // Priority
+                            NULL,              // We are not using the task handle.
+                            1);                // Core where the task should run
   }
   else
   {
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println("[ERROR] The queue xQueueSD could not be created.");
-  #endif
+#endif
   }
 
   pinMode(PIN_LED, OUTPUT);
@@ -403,13 +412,13 @@ void setup()
   // Idle Task hook
   esp_register_freertos_idle_hook(my_vApplicationIdleHook);
 
-  xTaskCreatePinnedToCore(vMainTask, /* Pointer to the function that implements the task. */
-    "Main Task",         /* Text name for the task.  This is to facilitate debugging only. */
-    10240,             /* Stack depth - most small microcontrollers will use much less stack than this. */
-    NULL,             /* We are not using the task parameter. */
-    PRIO_TASK_MAIN, /* Priority */ /* Range from 0 to 32, 32 being the highest priority */
-    NULL,             /* We are not using the task handle. */
-    1);               /* Core where the task should run */
+  xTaskCreatePinnedToCore(vMainTask,                     /* Pointer to the function that implements the task. */
+                          "Main Task",                   /* Text name for the task.  This is to facilitate debugging only. */
+                          10240,                         /* Stack depth - most small microcontrollers will use much less stack than this. */
+                          NULL,                          /* We are not using the task parameter. */
+                          PRIO_TASK_MAIN, /* Priority */ /* Range from 0 to 32, 32 being the highest priority */
+                          NULL,                          /* We are not using the task handle. */
+                          1);                            /* Core where the task should run */
 
   /* Check the semaphore was created successfully. */
   if (xBinarySemaphore != NULL)
@@ -425,6 +434,7 @@ void setup()
   }
 }
 
+// loop will be deleted, not used
 void loop()
 {
   vTaskDelete(NULL);
@@ -432,13 +442,19 @@ void loop()
 
 //------------------------------------------------------------------------------
 
+/**
+ * @brief vSDInterruptHandler(void)
+ * Function called by external interrupt, gives semaphore
+ *
+ * IRAM_ATTR  - function stored in RAM
+ */
 static void IRAM_ATTR vSDInterruptHandler(void)
 {
   static portBASE_TYPE xHigherPriorityTaskWoken;
   xHigherPriorityTaskWoken = pdFALSE;
 
   /* 'Give' the semaphore to unblock the task. */
-  xSemaphoreGiveFromISR(xBinarySemaphore, (signed portBASE_TYPE*) & xHigherPriorityTaskWoken);
+  xSemaphoreGiveFromISR(xBinarySemaphore, (signed portBASE_TYPE *)&xHigherPriorityTaskWoken);
 
   if (xHigherPriorityTaskWoken == pdTRUE)
   {
@@ -446,7 +462,13 @@ static void IRAM_ATTR vSDInterruptHandler(void)
   }
 }
 
-static void vSDHandlerTask(void* pvParameters)
+/**
+ * @brief vSDHandlerTask(void *pvParameters)
+ * This task is unlocked when semaphore is provided
+ *
+ * @param pvParameters unused
+ */
+static void vSDHandlerTask(void *pvParameters)
 {
   const TickType_t xDelay5ms = 10 / portTICK_PERIOD_MS;
   /* Note that when you create a binary semaphore in FreeRTOS, it is ready
@@ -467,25 +489,34 @@ static void vSDHandlerTask(void* pvParameters)
     need to check the returned value. */
 
     xSemaphoreTake(xBinarySemaphore, portMAX_DELAY);
-    if (digitalRead(INTERRUPT_PIN) == LOW) {  // contact closed, SD inserted
-    #ifdef DEBUG_SERIAL_
+    if (digitalRead(INTERRUPT_PIN) == LOW)
+    { // contact closed, SD inserted
+#ifdef DEBUG_SERIAL_
       Serial.println("LOW");
-    #endif
+#endif
       vTaskDelay(xDelay5ms);
       sdcardInserted = true;
     }
-    else {  // SD card removed
-    #ifdef DEBUG_SERIAL_
+    else
+    { // SD card removed
+#ifdef DEBUG_SERIAL_
       Serial.println("HIGH");
-    #endif
+#endif
       vTaskDelay(xDelay5ms);
       sdcardInserted = false;
     }
   }
 }
 
-/* Idle hook functions MUST be called vApplicationIdleHook(), take no parameters,
-and return void. */
+/**
+ * @brief my_vApplicationIdleHook(void)
+ * Idle hook functions MUST be called vApplicationIdleHook(), take no parameters
+ * Constantly changes duty-cycle applied to LED when SDCard is present.
+ * Duty-cycle set to 0 if no SDCard is present.
+ *
+ * @return true
+ * @return false
+ */
 bool my_vApplicationIdleHook(void)
 {
   const TickType_t xDelay150ms = 150 / portTICK_PERIOD_MS;
@@ -493,12 +524,14 @@ bool my_vApplicationIdleHook(void)
   static bool inv = false, isOff = false;
   static byte pwmVal = 0;
 
-  if (sdcardInserted) {
+  if (sdcardInserted)
+  {
     isOff = false;
-    if (xLastWakeTime + xDelay150ms < xTaskGetTickCount()) {
-      if ((pwmVal + 10) > 255)  //max
+    if (xLastWakeTime + xDelay150ms < xTaskGetTickCount())
+    {
+      if ((pwmVal + 10) > 255) // max
         inv = true;
-      else if ((pwmVal - 10) < 50) //min
+      else if ((pwmVal - 10) < 50) // min
         inv = false;
 
       if (inv == true)
@@ -506,13 +539,14 @@ bool my_vApplicationIdleHook(void)
       else
         pwmVal = pwmVal + 10;
 
-
       ledcWrite(LED_CHANNEL, pwmVal);
       xLastWakeTime = xTaskGetTickCount();
     }
   }
-  else {
-    if (isOff == false) {
+  else
+  {
+    if (isOff == false)
+    {
       pwmVal = 0;
       ledcWrite(LED_CHANNEL, 255);
       isOff = true;
@@ -524,13 +558,27 @@ bool my_vApplicationIdleHook(void)
 
 //------------------------------------------------------------------------------
 
-bool is_number(const std::string& s)
+/**
+ * @brief is_number(const std::string &s)
+ *
+ * @param s - input string that may contain a number
+ * @return true - returns true if input string contains a number
+ * @return false - returns false if input string does not contain a number
+ */
+bool is_number(const std::string &s)
 {
   return !s.empty() && std::find_if(s.begin(),
-    s.end(), [](unsigned char c) { return !std::isdigit(c); }) == s.end();
+                                    s.end(), [](unsigned char c)
+                                    { return !std::isdigit(c); }) == s.end();
 }
 
-void vMainTask(void* pvParameters)
+/**
+ * @brief vMainTask(void *pvParameters)
+ * Collects information from sensors and sends it into to vSDwriteTask in a character array.
+ *
+ * @param pvParameters unused
+ */
+void vMainTask(void *pvParameters)
 {
   const TickType_t xDelay250ms = 250 / portTICK_PERIOD_MS;
   float ADCReceivedValue = 0;
@@ -543,113 +591,128 @@ void vMainTask(void* pvParameters)
   for (;;)
   {
     TickType_t xLastWakeTime = xTaskGetTickCount();
-    //std::string* pStr2;
-    if (Serial.available()) { // read the character and do what you need
+    // std::string* pStr2;
+    if (Serial.available())
+    { // read the character and do what you need
       String msg = Serial.readString();
       serStr.clear();
       serStr.append(std::string(msg.c_str()));
       std::string answer;
 
       std::string cmd("setdate");
-      std::size_t found = serStr.find(cmd); //get pos of string match
-      if (found != std::string::npos) {  // if post is valid
+      std::size_t found = serStr.find(cmd); // get pos of string match
+      if (found != std::string::npos)
+      { // if post is valid
         int year = -1, month = -1, day = -1;
         // serStr contains cmd
         // setdate yyyy/MM/dd
-        if (serStr.length() > 18) {
+        if (serStr.length() > 18)
+        {
           std::string buffer;
           buffer.append(serStr.substr((found + 8), 4));
-          if (is_number(buffer.c_str())) {
+          if (is_number(buffer.c_str()))
+          {
             year = std::stoi(buffer);
           }
           buffer.clear();
           buffer.append(serStr.substr((found + 8 + 4 + 1), 2));
-          if (is_number(buffer.c_str())) {
+          if (is_number(buffer.c_str()))
+          {
             month = std::stoi(buffer);
           }
           buffer.clear();
           buffer.append(serStr.substr((found + 8 + 4 + 1 + 2 + 1), 2));
-          if (is_number(buffer.c_str())) {
+          if (is_number(buffer.c_str()))
+          {
             day = std::stoi(buffer);
           }
         }
-        if (year > 0 && (month > 0 && month < 13) && (day > 0 && day < 32)) {
+        if (year > 0 && (month > 0 && month < 13) && (day > 0 && day < 32))
+        {
           rtc.setTime(rtc.getSecond(), rtc.getMinute(), rtc.getHour(true), day, month, year, /* ms */ 0);
           answer.append("Date set.\n");
         }
-        else {
+        else
+        {
           answer.append("Error, please enter date in format:\nsetdate yyyy/MM/dd\n");
         }
       }
       cmd.clear();
       cmd.append("settime");
-      found = serStr.find(cmd); //get pos of string match
-      if (found != std::string::npos) {  // if post is valid
+      found = serStr.find(cmd); // get pos of string match
+      if (found != std::string::npos)
+      { // if post is valid
         int hour = -1, min = -1, sec = -1;
         // serStr contains cmd
         // settime hh/mm/ss
-        if (serStr.length() > 15) {
+        if (serStr.length() > 15)
+        {
           std::string buffer;
           buffer.append(serStr.substr((found + 8), 2));
-          if (is_number(buffer.c_str())) {
+          if (is_number(buffer.c_str()))
+          {
             hour = std::stoi(buffer);
           }
           buffer.clear();
           buffer.append(serStr.substr((found + 8 + 2 + 1), 2));
-          if (is_number(buffer.c_str())) {
+          if (is_number(buffer.c_str()))
+          {
             min = std::stoi(buffer);
           }
           buffer.clear();
           buffer.append(serStr.substr((found + 8 + 2 + 1 + 2 + 1), 2));
-          if (is_number(buffer.c_str())) {
+          if (is_number(buffer.c_str()))
+          {
             sec = std::stoi(buffer);
           }
         }
-        if ((hour >= 0 && hour < 24) && (min >= 0 && min < 59) && (sec >= 0 && sec < 59)) {
+        if ((hour >= 0 && hour < 24) && (min >= 0 && min < 59) && (sec >= 0 && sec < 59))
+        {
           rtc.setTime(sec, min, hour, rtc.getDay(), rtc.getMonth() + 1, rtc.getYear(), /* ms */ 0);
           answer.append("Time set.\n");
         }
-        else {
+        else
+        {
           answer.append("Error, please enter date in format:\nsettime hh:mm:ss\n");
         }
-
       }
       cmd.clear();
       cmd.append("getdate");
-      found = serStr.find(cmd); //get pos of string match
-      if (found != std::string::npos) {  // if post is valid
+      found = serStr.find(cmd); // get pos of string match
+      if (found != std::string::npos)
+      { // if post is valid
         String msg2 = rtc.getTime("Date of the RTC: %A, %B %d %Y %H:%M:%S");
         answer.append(std::string(msg2.c_str()));
       }
       cmd.clear();
       cmd.append("help");
-      found = serStr.find(cmd); //get pos of string match
-      if (found != std::string::npos) {  // if post is valid
+      found = serStr.find(cmd); // get pos of string match
+      if (found != std::string::npos)
+      { // if post is valid
         answer.append("Commands available:\nsetdate yyyy/MM/dd\nsettime hh/mm/ss\ngetdate\n");
       }
 
       if (answer.empty())
         answer.append("Unkown, type 'help' for commands.\n");
-      //pStr2 = new std::string(answer.c_str());
+      // pStr2 = new std::string(answer.c_str());
       char a[300];
-      strcpy(a,answer.c_str());
-      
-      xQueueSendToBack(xQueueBlue, &a, 0);
+      strcpy(a, answer.c_str());
 
+      xQueueSendToBack(xQueueBlue, &a, 0);
     }
     bool infoCollected = false;
     xStatus = xQueueReceive(xQueueADC, &ADCReceivedValue, 0);
-    //......................|||||||||...\\\\\\\\\\\\\\\\-> copy values to local variable 
+    //......................|||||||||...\\\\\\\\\\\\\\\\-> copy values to local variable
     //......................\\\\\\\\\-> Queue Name
     if (xStatus == pdPASS)
     {
       /* Data was successfully received from the queue, print out the received
       value. */
-    #ifdef DEBUG_SERIAL_ADC
+#ifdef DEBUG_SERIAL_ADC
       Serial.print(", ADC = ");
       Serial.print(ADCReceivedValue);
       Serial.print(" V, ");
-    #endif
+#endif
       sdcString.append("ADC: ");
       sdcString.append(std::to_string(ADCReceivedValue));
       sdcString.append(" mV");
@@ -660,14 +723,15 @@ void vMainTask(void* pvParameters)
       /* We did not receive anything from the queue even after waiting for 100ms.
       This must be an error as the sending tasks are free running and will be
       continuously writing to the queue. */
-    #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
       Serial.print("ADC: Could not receive from the queue.\r\n");
-    #endif
+#endif
     }
-    sdcString.append(" # ");  // divider symbol
+    sdcString.append(" # "); // divider symbol
     xStatus = xQueueReceive(xQueueATM, &atmVars, 0);
-    if (xStatus == pdPASS) {
-    #ifdef DEBUG_SERIAL_ATM
+    if (xStatus == pdPASS)
+    {
+#ifdef DEBUG_SERIAL_ATM
       Serial.print("ATM ");
       Serial.print(atmVars.sysStatus0);
       Serial.print(", ");
@@ -679,7 +743,7 @@ void vMainTask(void* pvParameters)
       Serial.print(", ");
       Serial.print(atmVars.temperature);
       Serial.println(". ");
-    #endif
+#endif
       sdcString.append("ATM90E36: ");
       sdcString.append("  sysStatus01[");
       sdcString.append(std::to_string(atmVars.sysStatus0));
@@ -730,16 +794,18 @@ void vMainTask(void* pvParameters)
       sdcString.append(" VAR");
       infoCollected = true;
     }
-    else {
+    else
+    {
       sdcString.append("ATM90E36: - ");
-    #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
       Serial.print("ATM90E36: Could not receive from the queue.\r\n");
-    #endif
+#endif
     }
-    sdcString.append(" # ");  // divider symbol
+    sdcString.append(" # "); // divider symbol
 
     xStatus = xQueueReceive(xQueueSI, &siVars, 0);
-    if (xStatus == pdPASS) {
+    if (xStatus == pdPASS)
+    {
       // values have been received
       sdcString.append("Si8021: ");
       sdcString.append("humidity= ");
@@ -748,25 +814,27 @@ void vMainTask(void* pvParameters)
       sdcString.append(std::to_string(siVars.temperature));
       sdcString.append(" deg.");
     }
-    else {
+    else
+    {
       sdcString.append("Si8021: - ");
-    #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
       Serial.print("Si7021: Could not receive from the queue.\r\n");
-    #endif
+#endif
     }
-    sdcString.append(" # ");  // divider symbol
+    sdcString.append(" # "); // divider symbol
 
     xStatus = xQueueReceive(xQueueIIM, &iimVars, 0);
-    if (xStatus == pdPASS) {
+    if (xStatus == pdPASS)
+    {
       // values have been received
-    #ifdef DEBUG_SERIAL_IIM
+#ifdef DEBUG_SERIAL_IIM
       Serial.print("IIM X: ");
       Serial.print(iimVars.accelX);
       Serial.print(", Y: ");
       Serial.print(iimVars.accelY);
       Serial.print(", Z: ");
       Serial.println(iimVars.accelZ);
-    #endif
+#endif
       sdcString.append("IIM-42352: ");
       sdcString.append("Accel.X= ");
       sdcString.append(std::to_string(iimVars.accelX));
@@ -776,40 +844,48 @@ void vMainTask(void* pvParameters)
       sdcString.append(std::to_string(iimVars.accelZ));
       sdcString.append("g");
     }
-    else {
+    else
+    {
       sdcString.append("IIM-42352: - ");
-    #ifdef DEBUG_SERIAL_
-      //Serial.print("IIM: Could not receive from the queue.\r\n");
+#ifdef DEBUG_SERIAL_
+      // Serial.print("IIM: Could not receive from the queue.\r\n");
       Serial.print("IIM queue f ");
-    #endif
+#endif
     }
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.flush();
-  #endif
-    if (infoCollected) {
-      std::string* pStr = new std::string(sdcString.c_str());
+#endif
+    if (infoCollected)
+    {
+      std::string *pStr = new std::string(sdcString.c_str());
       xQueueSendToBack(xQueueSD, &pStr, 0);
     }
 
     vTaskDelayUntil(&xLastWakeTime, xDelay250ms); // "Smart" Delay (250ms)
     sdcString.clear();
-    //delete pStr2;
+    // delete pStr2;
   }
 }
 
 //------------------------------------------------------------------------------
 
-static void vSerialSendTask(void* pvParameters)
+/**
+ * @brief receives message to send (as a pointer) over UART
+ *
+ * @param pvParameters
+ */
+static void vSerialSendTask(void *pvParameters)
 {
-  char* pcMessageToPrint;
+  char *pcMessageToPrint;
 
-  for (;; )
+  for (;;)
   {
     /* Wait for a message to arrive. */
     char data[300];
     xQueueReceive(xQueueBlue, &data, portMAX_DELAY);
     std::string pStr;
-    pStr.append(data);;
+    pStr.append(data);
+    ;
 
     Serial.println(pStr.c_str());
     Serial.flush();
@@ -821,186 +897,217 @@ static void vSerialSendTask(void* pvParameters)
 // Statically allocate and initialize the spinlock
 static portMUX_TYPE my_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
-void listDir(fs::FS& fs, const char* dirname, uint8_t levels) {
+void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
+{
 #ifdef DEBUG_SERIAL_SD
   Serial.printf("Listing directory: %s\n", dirname);
 #endif
 
   File root = fs.open(dirname);
-  if (!root) {
-  #ifdef DEBUG_SERIAL_SD
+  if (!root)
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Failed to open directory");
-  #endif
+#endif
     return;
   }
-  if (!root.isDirectory()) {
-  #ifdef DEBUG_SERIAL_SD
+  if (!root.isDirectory())
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Not a directory");
-  #endif
+#endif
     return;
   }
 
   File file = root.openNextFile();
-  while (file) {
-    if (file.isDirectory()) {
-    #ifdef DEBUG_SERIAL_SD
+  while (file)
+  {
+    if (file.isDirectory())
+    {
+#ifdef DEBUG_SERIAL_SD
       Serial.print("  DIR : ");
       Serial.println(file.name());
-    #endif
-      if (levels) {
+#endif
+      if (levels)
+      {
         listDir(fs, file.name(), levels - 1);
       }
     }
-    else {
-    #ifdef DEBUG_SERIAL_SD
+    else
+    {
+#ifdef DEBUG_SERIAL_SD
       Serial.print("  FILE: ");
       Serial.print(file.name());
       Serial.print("  SIZE: ");
       Serial.println(file.size());
-    #endif
+#endif
     }
     file = root.openNextFile();
   }
 }
 
-void createDir(fs::FS& fs, const char* path) {
+void createDir(fs::FS &fs, const char *path)
+{
 #ifdef DEBUG_SERIAL_SD
   Serial.printf("Creating Dir: %s\n", path);
 #endif
-  if (fs.mkdir(path)) {
-  #ifdef DEBUG_SERIAL_SD
+  if (fs.mkdir(path))
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Dir created");
-  #endif
+#endif
   }
-  else {
-  #ifdef DEBUG_SERIAL_SD
+  else
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("mkdir failed");
-  #endif
+#endif
   }
 }
 
-void removeDir(fs::FS& fs, const char* path) {
+void removeDir(fs::FS &fs, const char *path)
+{
 #ifdef DEBUG_SERIAL_SD
   Serial.printf("Removing Dir: %s\n", path);
 #endif
-  if (fs.rmdir(path)) {
-  #ifdef DEBUG_SERIAL_SD
+  if (fs.rmdir(path))
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Dir removed");
-  #endif
+#endif
   }
-  else {
-  #ifdef DEBUG_SERIAL_SD
+  else
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("rmdir failed");
-  #endif
+#endif
   }
 }
 
-void readFile(fs::FS& fs, const char* path) {
+void readFile(fs::FS &fs, const char *path)
+{
 #ifdef DEBUG_SERIAL_SD
   Serial.printf("Reading file: %s\n", path);
 #endif
 
   File file = fs.open(path);
-  if (!file) {
-  #ifdef DEBUG_SERIAL_SD
+  if (!file)
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Failed to open file for reading");
-  #endif
+#endif
     return;
   }
 
 #ifdef DEBUG_SERIAL_SD
   Serial.print("Read from file: ");
 #endif
-  while (file.available()) {
-  #ifdef DEBUG_SERIAL_SD
+  while (file.available())
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.write(file.read());
-  #endif
+#endif
   }
   file.close();
 }
 
-void writeFile(fs::FS& fs, const char* path, const char* message) {
+void writeFile(fs::FS &fs, const char *path, const char *message)
+{
 #ifdef DEBUG_SERIAL_SD
   Serial.printf("Writing file: %s\n", path);
 #endif
   File file = fs.open(path, FILE_WRITE);
-  if (!file) {
-  #ifdef DEBUG_SERIAL_SD
+  if (!file)
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Failed to open file for writing");
-  #endif
+#endif
     return;
   }
-  if (file.print(message)) {
-  #ifdef DEBUG_SERIAL_SD
+  if (file.print(message))
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("File written");
-  #endif
+#endif
   }
-  else {
-  #ifdef DEBUG_SERIAL_SD
+  else
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Write failed");
-  #endif
+#endif
   }
   file.close();
 }
 
-void appendFile(fs::FS& fs, const char* path, const char* message) {
+void appendFile(fs::FS &fs, const char *path, const char *message)
+{
 #ifdef DEBUG_SERIAL_SD
   Serial.printf("Appending to file: %s\n", path);
 #endif
 
   File file = fs.open(path, FILE_APPEND);
-  if (!file) {
-  #ifdef DEBUG_SERIAL_SD
+  if (!file)
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Failed to open file for appending");
-  #endif
+#endif
     return;
   }
-  if (file.print(message)) {
-  #ifdef DEBUG_SERIAL_SD
+  if (file.print(message))
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Message appended");
-  #endif
+#endif
   }
-  else {
-  #ifdef DEBUG_SERIAL_SD
+  else
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Append failed");
-  #endif
+#endif
   }
   file.close();
 }
 
-void renameFile(fs::FS& fs, const char* path1, const char* path2) {
+void renameFile(fs::FS &fs, const char *path1, const char *path2)
+{
 #ifdef DEBUG_SERIAL_SD
   Serial.printf("Renaming file %s to %s\n", path1, path2);
 #endif
-  if (fs.rename(path1, path2)) {
-  #ifdef DEBUG_SERIAL_SD
+  if (fs.rename(path1, path2))
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("File renamed");
-  #endif
+#endif
   }
-  else {
-  #ifdef DEBUG_SERIAL_SD
+  else
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Rename failed");
-  #endif
+#endif
   }
 }
 
-void deleteFile(fs::FS& fs, const char* path) {
+void deleteFile(fs::FS &fs, const char *path)
+{
 #ifdef DEBUG_SERIAL_SD
   Serial.printf("Deleting file: %s\n", path);
 #endif
-  if (fs.remove(path)) {
-  #ifdef DEBUG_SERIAL_SD
+  if (fs.remove(path))
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("File deleted");
-  #endif
+#endif
   }
-  else {
-  #ifdef DEBUG_SERIAL_SD
+  else
+  {
+#ifdef DEBUG_SERIAL_SD
     Serial.println("Delete failed");
-  #endif
+#endif
   }
 }
 
-void vSDwriteTask(void* pvParameters) {
+void vSDwriteTask(void *pvParameters)
+{
   const TickType_t xDelay250ms = 250 / portTICK_PERIOD_MS;
   portBASE_TYPE xStatus;
   bool writingToTempTxt = false;
@@ -1010,22 +1117,26 @@ void vSDwriteTask(void* pvParameters) {
   int year = 0, month = -1, day = 0; // initial data is intentionally invalid
   std::string dirYearName, dirMonthName, fileName;
 
-  while (sdcardInserted == false) {
+  while (sdcardInserted == false)
+  {
     vTaskDelay(xDelay250ms);
   }
   SPIClass spi = HSPI;
-  while (!SD.begin(15, spi, 4000000, "/sd", 5, false)) { // use this line for HSPI
-  #ifdef DEBUG_SERIAL_
+  while (!SD.begin(15, spi, 4000000, "/sd", 5, false))
+  { // use this line for HSPI
+#ifdef DEBUG_SERIAL_
     Serial.println("Card Mount Failed");
-  #endif    
+#endif
     vTaskDelay(xDelay250ms);
   }
-  if (rtc.getYear() < 2000) {
+  if (rtc.getYear() < 2000)
+  {
     fileName.append("/temp.txt");
     // save info on a file named "temp", if file exits, rename existing file
     uint8_t count = 0;
     xSemaphoreTake(xMutexHSPI, portMAX_DELAY);
-    if (SD.exists("temp.txt")) {  // check if file exists
+    if (SD.exists("temp.txt"))
+    { // check if file exists
       std::string oldFileName, a;
       oldFileName.append("temp.txt");
       while (SD.exists(oldFileName.c_str()))
@@ -1035,48 +1146,57 @@ void vSDwriteTask(void* pvParameters) {
         oldFileName.append("temp");
         oldFileName.append(std::to_string(count));
         oldFileName.append(".txt");
-        if (count == 255) { // "temp255.txt"
-          oldFileName.insert(0, "/"); // "/temp255.txt"
-          deleteFile(SD, oldFileName.c_str());  // delete the file
+        if (count == 255)
+        {                                      // "temp255.txt"
+          oldFileName.insert(0, "/");          // "/temp255.txt"
+          deleteFile(SD, oldFileName.c_str()); // delete the file
           break;
         }
       }
       if (count != 255)
         a.append("/");
       a.append(oldFileName);
-      renameFile(SD, "/temp.txt", a.c_str());  // rename old file, 
+      renameFile(SD, "/temp.txt", a.c_str()); // rename old file,
       // we can now write into "temp.txt" without likely losing previous info
     }
     xSemaphoreGive(xMutexHSPI);
     writingToTempTxt = true;
   }
 
-  for (;;) {
+  for (;;)
+  {
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
-    if (digitalRead(INTERRUPT_PIN) == LOW) { // SDCard inserted
-      std::string* pStr = NULL;
+    if (digitalRead(INTERRUPT_PIN) == LOW)
+    { // SDCard inserted
+      std::string *pStr = NULL;
       xStatus = xQueueReceive(xQueueSD, &pStr, 0);
       std::string cpy;
       cpy.clear();
-      if (xStatus == pdPASS) {
+      if (xStatus == pdPASS)
+      {
         cpy = *pStr;
-      #ifdef DEBUG_SERIAL_SDWRITE
+#ifdef DEBUG_SERIAL_SDWRITE
         Serial.print(" ,");
         Serial.print(cpy->c_str());
-      #endif
-        xSemaphoreTake(xMutexHSPI, portMAX_DELAY);
-        if (rtc.getYear() < 2000) { // true if rtc not adjusted
+#endif
+        if (rtc.getYear() < 2000)
+        { // true if rtc not adjusted
           // save info on a file named "temp", if file exits, rename existing file
           std::string content;
           content.append(cpy.c_str());
           content.append("\n");
+          xSemaphoreTake(xMutexHSPI, portMAX_DELAY);
           writeFile(SD, fileName.c_str(), content.c_str());
+          xSemaphoreGive(xMutexHSPI);
         }
-        else {  // rtc is adjusted 
-          if ((rtc.getDay() != day) || (rtc.getMonth() != month) || (rtc.getYear() != year)) { // check if date has changed
+        else
+        { // rtc is adjusted
+          if ((rtc.getDay() != day) || (rtc.getMonth() != month) || (rtc.getYear() != year))
+          { // check if date has changed
             day = rtc.getDay();
-            if ((rtc.getMonth() != month) || (rtc.getYear() != year)) {
+            if ((rtc.getMonth() != month) || (rtc.getYear() != year))
+            {
               month = rtc.getMonth();
               dirMonthName.clear();
               dirMonthName.append("/");
@@ -1123,25 +1243,30 @@ void vSDwriteTask(void* pvParameters) {
                 dirMonthName.append("unknown");
                 break;
               }
-              if (rtc.getYear() != year) {
+              if (rtc.getYear() != year)
+              {
                 year = rtc.getYear();
                 dirYearName.clear();
                 dirYearName.append("/");
                 dirYearName.append(std::to_string(year));
+                xSemaphoreTake(xMutexHSPI, portMAX_DELAY);
                 createDir(SD, dirYearName.c_str());
+                xSemaphoreGive(xMutexHSPI);
               }
               std::string str;
               str.append(dirYearName);
               str.append(dirMonthName);
+              xSemaphoreTake(xMutexHSPI, portMAX_DELAY);
               createDir(SD, str.c_str());
+              xSemaphoreGive(xMutexHSPI);
             }
             fileName.clear();
-            fileName.append(dirYearName);   // "/2023"
-            fileName.append(dirMonthName);  // "/2023/Jan"
-            fileName.append("/");           // "/2023/Jan/"
+            fileName.append(dirYearName);         // "/2023"
+            fileName.append(dirMonthName);        // "/2023/Jan"
+            fileName.append("/");                 // "/2023/Jan/"
             fileName.append(std::to_string(day)); // "/2023/Jan/1"
-            fileName.append(".txt");        // "/2023/Jan/1.txt"
-            //update folders
+            fileName.append(".txt");              // "/2023/Jan/1.txt"
+            // update folders
           }
           vTaskPrioritySet(NULL, PRIO_TASK_MAIN + 1); // rise priority
           std::string content;
@@ -1156,34 +1281,42 @@ void vSDwriteTask(void* pvParameters) {
           content.append(" # ");
           content.append(cpy.c_str());
           content.append("\r\n");
-          if (writingToTempTxt == true) { // if we just now got the updated time/date
-            renameFile(SD, "/temp.txt", fileName.c_str());  // We'll rename the temp.txt to keep its contents
+          if (writingToTempTxt == true)
+          { // if we just now got the updated time/date
+
+            xSemaphoreTake(xMutexHSPI, portMAX_DELAY);
+            renameFile(SD, "/temp.txt", fileName.c_str()); // We'll rename the temp.txt to keep its contents
+            xSemaphoreGive(xMutexHSPI);
             writingToTempTxt = false;
           }
+          xSemaphoreTake(xMutexHSPI, portMAX_DELAY);
           taskENTER_CRITICAL(&my_spinlock);
           appendFile(SD, /* path */ fileName.c_str(), /* text */ content.c_str());
           taskEXIT_CRITICAL(&my_spinlock);
-          vTaskPrioritySet(NULL, PRIO_TASK_SDWRITE);  // lower priority
+          xSemaphoreGive(xMutexHSPI);
+          vTaskPrioritySet(NULL, PRIO_TASK_SDWRITE); // lower priority
         }
-        xSemaphoreGive(xMutexHSPI);
       }
-    #ifdef DEBUG_SERIAL_SDWRITE
-      else {
+#ifdef DEBUG_SERIAL_SDWRITE
+      else
+      {
         Serial.print("SD xStatus != pdPASS");
       }
-    #endif
-      delete pStr;
+#endif
+      delete pStr; // must delete pointer to avoid memory leak
     }
-    else {
-      while (digitalRead(INTERRUPT_PIN) == HIGH)  // while SDCard not inserted
+    else
+    {
+      while (digitalRead(INTERRUPT_PIN) == HIGH) // while SDCard not inserted
       {
         vTaskDelayUntil(&xLastWakeTime, xDelay250ms); // "Smart" Delay (250ms)
         TickType_t xLastWakeTime = xTaskGetTickCount();
       }
-      while (!SD.begin(15, spi, 4000000, "/sd", 5, false)) { // use this line for HSPI
-      #ifdef DEBUG_SERIAL_
+      while (!SD.begin(15, spi, 4000000, "/sd", 5, false))
+      { // use this line for HSPI
+#ifdef DEBUG_SERIAL_
         Serial.println("Card Mount Failed");
-      #endif    
+#endif
         vTaskDelayUntil(&xLastWakeTime, xDelay250ms); // "Smart" Delay (250ms)
         TickType_t xLastWakeTime = xTaskGetTickCount();
       }
@@ -1194,7 +1327,14 @@ void vSDwriteTask(void* pvParameters) {
 
 //------------------------------------------------------------------------------
 
-void vSiTask(void* pvParameters) {
+/**
+ * @brief vSiTask(void *pvParameters)
+ * Task for retreiving information from si7021 over I2C bus
+ * 
+ * @param pvParameters - unused
+ */
+void vSiTask(void *pvParameters)
+{
   const TickType_t xDelay250ms = 250 / portTICK_PERIOD_MS;
   data_si_t siData;
 
@@ -1204,14 +1344,15 @@ void vSiTask(void* pvParameters) {
 
   if (!sensor.begin())
   {
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println("Did not find Si7021 sensor!");
-  #endif
+#endif
     vTaskDelete(NULL);
     // sensor.heater(enableHeater); // Causes a 1.8 ºC difference
   }
   else
-    for (;;) {
+    for (;;)
+    {
       xSemaphoreTake(xMutexI2C, portMAX_DELAY);
       TickType_t xLastWakeTime = xTaskGetTickCount();
 
@@ -1226,7 +1367,14 @@ void vSiTask(void* pvParameters) {
 
 //------------------------------------------------------------------------------
 
-void vIImTask(void* pvParameters) {
+/**
+ * @brief vIImTask(void *pvParameters)
+ * Task for retreiving information from IIM sensor
+ * 
+ * @param pvParameters - unused
+ */
+void vIImTask(void *pvParameters)
+{
   const TickType_t xDelay250ms = 250 / portTICK_PERIOD_MS;
   data_iim_t iimData;
 
@@ -1237,28 +1385,35 @@ void vIImTask(void* pvParameters) {
   float acc[3];
   bool init = false;
   IIM42SENSOR.init();
-  for (;;) {
+  for (;;)
+  {
     xSemaphoreTake(xMutexI2C, portMAX_DELAY);
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
-    if (init == false) {
+    if (init == false)
+    {
       rc = IIM42SENSOR.init();
-      if (rc != 0) {
-      #ifdef DEBUG_SERIAL_
-        //Serial.print(F("IIM42 sensor initialization failed. "));
+      if (rc != 0)
+      {
+#ifdef DEBUG_SERIAL_
+        // Serial.print(F("IIM42 sensor initialization failed. "));
         Serial.print(F("IIM ini f "));
-      #endif
+#endif
       }
-      else {
+      else
+      {
         init = true;
       }
     }
-    if (init == true) {
+    if (init == true)
+    {
       rc = IIM42SENSOR.get_val(acc);
-      if (Wire._twoWireLastError == -1) {
+      if (Wire._twoWireLastError == -1)
+      {
         init = false;
       }
-      else if (rc == 0) {
+      else if (rc == 0)
+      {
         iimData.accelX = acc[0];
         iimData.accelY = acc[1];
         iimData.accelZ = acc[2];
@@ -1273,11 +1428,19 @@ void vIImTask(void* pvParameters) {
 
 //------------------------------------------------------------------------------
 
-void vAtmTask(void* pvParameters) {
+/**
+ * @brief vAtmTask(void *pvParameters)
+ * Task for retreiving information from ATM90E36 IC
+ * 
+ * @param pvParameters - unused
+ */
+void vAtmTask(void *pvParameters)
+{
   const TickType_t xDelay250ms = 250 / portTICK_PERIOD_MS;
   data_atm_t atmVars;
 
-  for (;;) {
+  for (;;)
+  {
     xSemaphoreTake(xMutexSPI, portMAX_DELAY);
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
@@ -1347,7 +1510,13 @@ void vAtmTask(void* pvParameters) {
 
 #define SSID "SSID"
 #define PASSWORD "PASSWORD"
-void vWiFiTask(void* pvParameters)
+/**
+ * @brief vWiFiTask(void *pvParameters)
+ * Task to retreive time/date over WiFi
+ * 
+ * @param pvParameters - unused
+ */
+void vWiFiTask(void *pvParameters)
 {
   const TickType_t xDelay250ms = 250 / portTICK_PERIOD_MS;
 
@@ -1375,24 +1544,24 @@ void vWiFiTask(void* pvParameters)
     struct tm timeinfo;
     if (!getLocalTime(&timeinfo))
     {
-    #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
       Serial.println("Failed to obtain time");
-    #endif
+#endif
       vTaskDelete(NULL);
     }
 
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println(&timeinfo, "Date received from NTP: %A, %B %d %Y %H:%M:%S");
-  #endif
+#endif
 
     if (getLocalTime(&timeinfo))
     {
       rtc.setTimeStruct(timeinfo);
     }
 
-  #ifdef DEBUG_SERIAL_
+#ifdef DEBUG_SERIAL_
     Serial.println(rtc.getTime("Adjusted date of the RTC: %A, %B %d %Y %H:%M:%S"));
-  #endif
+#endif
   }
 
   // disconnect WiFi as it's no longer needed
@@ -1406,7 +1575,13 @@ void vWiFiTask(void* pvParameters)
 // ---
 
 #define ADC_OFFSET_ADJUST 0.2 // 200mV
-void vADCTask(void* pvParameters)
+/**
+ * @brief vADCTask(void *pvParameters)
+ * Get a voltage sample form the ADC in mV
+ * 
+ * @param pvParameters - unused
+ */
+void vADCTask(void *pvParameters)
 {
   const TickType_t xDelay250ms = 250 / portTICK_PERIOD_MS;
   float adcValue = 0;
@@ -1414,11 +1589,12 @@ void vADCTask(void* pvParameters)
 #ifdef DEBUG_SERIAL_
   Serial.println(" - vADCTask");
 #endif
-  pinMode(PIN_ADC1_0, INPUT);
+  pinMode(PIN_ADC1_0, INPUT); // must use ADC1, ADC2 disabled after enabling WiFi
   /* analogReadResolution(10);
   analogSetWidth(10);
   analogSetClockDiv(2); */
-  for (;;) {
+  for (;;)
+  {
     TickType_t xLastWakeTime = xTaskGetTickCount();
 
     // Read ADC, default A=11dB, up to 2450mV (recommended range)
@@ -1427,7 +1603,7 @@ void vADCTask(void* pvParameters)
     /*  3V3 ~ 4095,     3V3 = 3300mV
         Vin ~ adcValue
     */
-    lValueToSend = (adcValue * 3300) / 4095.0 + ADC_OFFSET_ADJUST;  // mV
+    lValueToSend = (adcValue * 3300) / 4095.0 + ADC_OFFSET_ADJUST; // mV
     // Write to Queue
     xQueueSendToBack(xQueueADC, &lValueToSend, 0);
     vTaskDelayUntil(&xLastWakeTime, xDelay250ms); // "Smart" Delay (250ms)
